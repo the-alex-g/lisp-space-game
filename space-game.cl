@@ -1,7 +1,10 @@
 (defparameter *planet-names* '(archimedes pythagoras pliny plato socrates))
 (defparameter *name-uses* (make-hash-table))
-(defparameter *gates* (make-hash-table :test 'equal))
+(defparameter *gates* (make-hash-table))
 (defparameter *planets* ())
+(defparameter *current-planet* nil)
+
+(defstruct planet name scanned)
 
 (defun rand-nth (list)
   (if (> (length list) 1)
@@ -26,14 +29,17 @@
       (setf (gethash planet-a *gates*) (cons planet-b (gethash planet-a *gates*))))))
 
 (defun set-planet-gates (new-planet)
-  (setf (gethash new-planet *gates*) ())
   (loop for i below (min (+ (random 3) 2) (length *planets*))
   	do (link-planets new-planet (rand-nth *planets*))))
 
 (defun get-planet ()
-  (let ((planet-name (get-planet-name)))
-    (set-planet-gates planet-name)
-    (setf *planets* (cons planet-name *planets*))))
+  (let ((planet (make-planet :name (get-planet-name)
+       			     :scanned nil)))
+    (set-planet-gates planet)
+    (setf *planets* (cons planet *planets*))
+    planet))
+    
 
 (defun start-game ()
-  (initiate-name-uses))
+  (initiate-name-uses)
+  (setf *current-planet* (get-planet)))
