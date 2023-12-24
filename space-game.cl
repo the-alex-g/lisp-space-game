@@ -8,6 +8,7 @@
 (defparameter *max-galaxy-size* 40)
 (defparameter *systems* '(engines sensors))
 (defparameter *loaded-systems* '(engines sensors))
+(defparameter *max-systems-loaded* 3)
 
 (defstruct planet name scanned)
 
@@ -36,14 +37,9 @@
     (unless (member planet-b (gethash planet-a *gates*))
       (setf (gethash planet-a *gates*) (cons planet-b (gethash planet-a *gates*))))))
 
-(defun set-planet-gates (new-planet)
-  (loop for i below (min (+ (random 3) 2) (length *planets*))
-  	do (link-planets new-planet (rand-nth *planets*))))
-
 (defun get-planet ()
   (let ((planet (make-planet :name (get-planet-name)
        			     :scanned nil)))
-    (set-planet-gates planet)
     (setf *planets* (cons planet *planets*))
     planet))
     
@@ -76,4 +72,25 @@
     	(progn (setf *current-planet* planet)
 	       `(you have flown to ,planet-id))
 	'(you cannot fly there))))
-	
+
+(defun upload (system)
+  (if (member system *systems*)
+      (if (< (length *loaded-systems*) *max-systems-loaded*)
+      	  (progn (setf *loaded-systems* (cons system *loaded-systems*))
+	  	 `(you have ,*loaded-systems* loaded))
+	  '(you already have max systems loaded!))
+      '(that system does not exist)))
+
+(defun unload (system)
+  (if (eq system 'all)
+      (progn (mapcan 'unload *loaded-systems*)
+      	     '(you have unloaded all systems))
+      (if (member system *loaded-systems*)
+      	  (labels ((u (list)
+	  	      (if list
+		      	  (if (eq (car list) system)
+			      (cdr list)
+			      (cons (car list) (u (cdr list)))))))
+	    (progn (setf *loaded-systems* (u *loaded-systems*))
+	    	   `(you have ,*loaded-systems* loaded)))
+	  `(,system is not loaded))))
