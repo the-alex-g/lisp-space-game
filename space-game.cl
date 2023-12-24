@@ -14,9 +14,8 @@
 (defmacro systemfunc (system name args &body body)
   `(setf (symbol-function (quote ,name))
          (lambda ,args
-	   (if (member (quote ,system) *loaded-systems*)
-	       ,@body
-	       '(the required system is not loaded)))))
+	   (cond ((member (quote ,system) *loaded-systems*) ,@body)
+	      	 (t '(the required system is not loaded))))))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
@@ -52,7 +51,7 @@
   (setf *current-planet* (get-planet))
   (custom-repl))
 
-(defun scan ()
+(systemfunc sensors scan ()
   (when (and (not (planet-scanned *current-planet*)) (< (length *planets*) *max-galaxy-size*))
       (setf (planet-scanned *current-planet*) t)
       (loop for i below (+ (random 3) 1)
@@ -69,7 +68,7 @@
 	  (get-planet-with-name planet-id (cdr list)))
       nil))
 
-(defun fly (name number)
+(systemfunc engines fly (name number)
   (let* ((planet-id (cons name (cons number nil)))
         (linked-planets (gethash *current-planet* *gates*))
 	(planet (get-planet-with-name planet-id *planets*)))
