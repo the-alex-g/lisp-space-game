@@ -6,8 +6,17 @@
 (defparameter *planets* ())
 (defparameter *current-planet* nil)
 (defparameter *max-galaxy-size* 40)
+(defparameter *systems* '(engines sensors))
+(defparameter *loaded-systems* '(engines sensors))
 
 (defstruct planet name scanned)
+
+(defmacro systemfunc (system name args &body body)
+  `(setf (symbol-function (quote ,name))
+         (lambda ,args
+	   (if (member (quote ,system) *loaded-systems*)
+	       ,@body
+	       '(the required system is not loaded)))))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
@@ -28,9 +37,14 @@
     (unless (member planet-b (gethash planet-a *gates*))
       (setf (gethash planet-a *gates*) (cons planet-b (gethash planet-a *gates*))))))
 
+(defun set-planet-gates (new-planet)
+  (loop for i below (min (+ (random 3) 2) (length *planets*))
+  	do (link-planets new-planet (rand-nth *planets*))))
+
 (defun get-planet ()
   (let ((planet (make-planet :name (get-planet-name)
        			     :scanned nil)))
+    (set-planet-gates planet)
     (setf *planets* (cons planet *planets*))
     planet))
     
