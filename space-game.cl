@@ -9,6 +9,7 @@
 (defparameter *systems* '(engines sensors))
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
+(defparameter *cannot-define* '())
 
 (defstruct planet name scanned)
 
@@ -42,15 +43,23 @@
 		    (list line)))))
     (parse list)))
 
-(defun quote-lines (lines)
-  (mapcar (lambda (line) (cons (car line) (mapcar (lambda (item) `(quote ,item)) (cdr line)))) lines))
+(defun quote-lines (lines exclude)
+  (mapcar (lambda (line)
+  	    (cons (car line) (mapcar (lambda (item)
+	    	       	     	       (if (member item exclude)
+				       	   item
+					   `(quote ,item)))
+			 	     (cdr line))))
+	  lines))
 
-(defun defcmd (name &rest body)
-  (let ((code (quote-lines (break-into-lines body))))
-    (setf *legal-commands* (cons name *legal-commands*))
-    (eval `(setf (symbol-function (quote ,name))
-       	  	 (lambda () ,@code))))
-  `(defined new command ,name))
+(defun defcmd (name args &rest body)
+  (if (member name *cannot-define*)
+    '(invalid command name)
+    (let ((code (quote-lines (break-into-lines body) args)))
+      (setf *legal-commands* (cons name *legal-commands*))
+      (eval `(setf (symbol-function (quote ,name))
+       	  	   (lambda ,args ,@code)))
+      `(defined new command ,name))))
 
 (defun rand-nth (list)
   (if (> (length list) 1)
@@ -107,10 +116,12 @@
 
 (defun upload (system)
   (if (member system *systems*)
-      (if (< (length *loaded-systems*) *max-systems-loaded*)
-      	  (progn (setf *loaded-systems* (cons system *loaded-systems*))
-	  	 `(you have ,*loaded-systems* loaded))
-	  '(you already have max systems loaded!))
+      (if (member system *loaded-systems*)
+      	  `(,system are already loaded)
+          (if (< (length *loaded-systems*) *max-systems-loaded*)
+       	      (progn (setf *loaded-systems* (cons system *loaded-systems*))
+	  	     `(you have ,*loaded-systems* loaded))
+	      '(you already have max systems loaded!)))
       '(that system does not exist)))
 
 (defun unload (system)
