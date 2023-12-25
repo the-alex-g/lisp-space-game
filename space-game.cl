@@ -12,13 +12,45 @@
 
 (defstruct planet name scanned)
 
+(mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
+
 (defmacro systemfunc (system name args &body body)
   `(setf (symbol-function (quote ,name))
          (lambda ,args
 	   (cond ((member (quote ,system) *loaded-systems*) ,@body)
 	      	 (t '(the required system is not loaded))))))
 
-(mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
+(defmacro break-off-line (list &body body)
+	   `(let ((line ()) (rest ()))
+	     (labels ((get-line (l started)
+			(if l
+			    (if (eq (car l) '\[)
+				(if started
+				    (progn (setf rest l)
+					   nil)
+				    (get-line (cdr l) t))
+				(cons (car l) (get-line (cdr l) started)))
+			    nil)))
+	       (setf line (get-line ,list nil))
+	       ,@body)))
+
+(defun break-into-lines (list)
+  (labels ((parse (l)
+  	      (break-off-line l
+	        (if rest
+		    (cons line (parse rest))
+		    (list line)))))
+    (parse list)))
+
+(defun quote-lines (lines)
+  (mapcar (lambda (line) (cons (car line) (mapcar (lambda (item) `(quote ,item)) (cdr line)))) lines))
+
+(defun defcmd (name &rest body)
+  (let ((code (quote-lines (break-into-lines body))))
+    (setf *legal-commands* (cons name *legal-commands*))
+    (eval `(setf (symbol-function (quote ,name))
+       	  	 (lambda () ,@code))))
+  `(defined new command ,name))
 
 (defun rand-nth (list)
   (if (> (length list) 1)
@@ -83,8 +115,12 @@
 
 (defun unload (system)
   (if (eq system 'all)
-      (progn (mapcan 'unload *loaded-systems*)
-      	     '(you have unloaded all systems))
+      (labels ((un ()
+      	         (if *loaded-systems*
+		     (progn (unload (car *loaded-systems*))
+		     	    (un))
+	 	     '(you have unloaded all systems))))
+	(un))
       (if (member system *loaded-systems*)
       	  (labels ((u (list)
 	  	      (if list

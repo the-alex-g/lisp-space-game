@@ -1,4 +1,4 @@
-(defparameter *legal-commands* '(fly scan upload unload))
+(defparameter *legal-commands* '(fly scan upload unload defcmd))
 
 (defun custom-read ()
   (let ((cmd (read-from-string (concatenate 'string "(" (read-line) ")"))))
