@@ -9,7 +9,7 @@
 (defparameter *systems* '(engines sensors))
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
-(defparameter *cannot-define* '())
+(defparameter *cannot-define* '(scan fly unload upload))
 
 (defstruct planet name scanned)
 
