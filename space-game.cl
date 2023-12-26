@@ -7,8 +7,8 @@
 (defparameter *systems* '(engines sensors))
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
-(defparameter *cannot-define* '(scan fly unload upload))
 (defparameter *legal-commands* '(fly scan upload unload defcmd))
+(defparameter *custom-commands* '())
 
 (defstruct planet name scanned)
 
@@ -86,13 +86,16 @@
 	  lines))
 
 (defun defcmd (name args &rest body)
-  (if (member name *cannot-define*)
-    '(invalid command name)
-    (let ((code (quote-lines (break-into-lines body) args)))
+  (if (or (member name *custom-commands*) (not (fboundp name)))
+    (let ((code (quote-lines (break-into-lines body) args)) (is-old (fboundp name)))
       (setf *legal-commands* (cons name *legal-commands*))
       (eval `(setf (symbol-function (quote ,name))
        	  	   (lambda ,args ,@code)))
-      `(defined new command ,name))))
+      (setf *custom-commands* (cons name *custom-commands*))
+      (if is-old
+      	  `(redefined command ,name)
+	  `(defined new command ,name)))
+    '(invalid command name)))
 
 (defun rand-nth (list)
   (if (> (length list) 1)
