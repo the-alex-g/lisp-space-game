@@ -8,10 +8,15 @@
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
 (defparameter *forbidden-commands* '())
-(defparameter *commands* '(fly scan upload unload defcmd systems))
+(defparameter *commands* '(fly scan upload unload defcmd systems fire))
 (defparameter *custom-commands* '())
+(defparameter *current-encounter* nil)
 
 (defstruct planet name scanned)
+(defstruct encounter on-finish)
+(defstruct (pirate (:include encounter)) (health (+ 1 (random 4)))
+	   	   	     		 (shields (eq 0 (random 3)))
+					 (engines (random 25)))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
@@ -80,8 +85,39 @@
   (let ((cmd (custom-read)))
     (if (eq (car cmd) 'quit)
     	(quit-game)
-      	(progn (custom-print (custom-eval cmd))
-      	       (custom-repl)))))
+      	(flet ((run-repl ()
+	         (custom-print (custom-eval cmd))
+		 (when *current-encounter*
+		       (encounter-process *current-encounter*))
+      	         (custom-repl)))
+	  (run-repl)))))
+
+(defun damage-player (power)
+  (let ((damage (+ 1 (random (+ 1 power)))))
+    (when (member 'shields *loaded-systems*)
+      	  (decf damage))
+    (if (eq 0 damage)
+    	(custom-print '(your shields blocked the attack))
+        (custom-print `(you have taken ,damage damage)))))
+
+(defun attack-player (power)
+  (if (member 'engines *loaded-systems*)
+      (if (< (random 100) 15)
+      	  (custom-print '(you dodged the attack))
+	  (damage-player power))
+      (damage-player power)))
+
+(defmethod encounter-process (encounter)
+  (eval (encounter-on-finish encounter)))
+
+(defmethod encounter-process ((encounter pirate))
+  (cond ((< (pirate-health encounter) 1)
+  	 (custom-print '(you defeated the pirate!))
+	 (setf *current-encounter* nil)
+	 (eval (encounter-on-finish encounter)))
+	(t
+	 (attack-player 1)
+	 (custom-print `(the pirate has ,(pirate-health encounter) health remaining)))))
 
 (defun break-into-lines (list)
   (labels ((parse (l)
@@ -161,9 +197,28 @@
         (linked-planets (gethash *current-planet* *gates*))
 	(planet (get-planet-with-name planet-id *planets*)))
     (if (and planet (member planet linked-planets))
-    	(progn (setf *current-planet* planet)
-	       `(you have flown to ,planet-id))
+    	(progn (setf *current-encounter*
+	       	     (make-pirate :on-finish `(progn (setf *current-planet* ,planet)
+	      	     		  	      	     (custom-print '(you have flown to ,planet-id)))))
+	       '(you have encountered a pirate))
 	'(you cannot fly there))))
+
+(defmethod attack (encounter)
+  '(you have fired on the encounter... i guess))
+
+(defmethod attack ((encounter pirate))
+    (if (< (random 100) (pirate-engines encounter))
+    	'(the pirate dodges your attack)
+  	 (let ((damage (+ 1 (random 2))))
+    	   (when (pirate-shields encounter)
+    	   	 (decf damage))
+           (decf (pirate-health encounter) damage)
+	   (if (eq 0 damage)
+	       '(the pirates shields blocked your attack)
+	       `(you dealt ,damage damage to the pirate)))))
+
+(systemfunc weapons fire ()
+  (attack *current-encounter*))
 
 (defun systems ()
   `(you have ,*loaded-systems* loaded))
