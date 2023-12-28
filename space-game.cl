@@ -4,10 +4,10 @@
 (defparameter *planets* ())
 (defparameter *current-planet* nil)
 (defparameter *max-galaxy-size* 40)
-(defparameter *systems* '(engines sensors))
+(defparameter *systems* '(engines sensors shields weapons))
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
-(defparameter *legal-commands* '(fly scan upload unload defcmd))
+(defparameter *legal-commands* '(fly scan upload unload defcmd systems))
 (defparameter *custom-commands* '())
 
 (defstruct planet name scanned)
@@ -33,6 +33,10 @@
 			    nil)))
 	       (setf line (get-line ,list nil))
 	       ,@body)))
+
+(defun quit-game ()
+  (mapcan 'fmakunbound *custom-commands*)
+  '(process terminated))
 
 (defun custom-read ()
   (let ((cmd (read-from-string (concatenate 'string "(" (read-line) ")"))))
@@ -64,9 +68,10 @@
 
 (defun custom-repl ()
   (let ((cmd (custom-read)))
-    (unless (eq (car cmd) 'quit)
-      (custom-print (custom-eval cmd))
-      (custom-repl))))
+    (if (eq (car cmd) 'quit)
+    	(quit-game)
+      	(progn (custom-print (custom-eval cmd))
+      	       (custom-repl)))))
 
 (defun break-into-lines (list)
   (labels ((parse (l)
@@ -150,13 +155,16 @@
 	       `(you have flown to ,planet-id))
 	'(you cannot fly there))))
 
+(defun systems ()
+  `(you have ,*loaded-systems* loaded))
+
 (defun upload (system)
   (if (member system *systems*)
       (if (member system *loaded-systems*)
       	  `(,system are already loaded)
           (if (< (length *loaded-systems*) *max-systems-loaded*)
        	      (progn (setf *loaded-systems* (cons system *loaded-systems*))
-	  	     `(you have ,*loaded-systems* loaded))
+	  	     (systems))
 	      '(you already have max systems loaded!)))
       '(that system does not exist)))
 
@@ -175,5 +183,5 @@
 			      (cdr list)
 			      (cons (car list) (u (cdr list)))))))
 	    (progn (setf *loaded-systems* (u *loaded-systems*))
-	    	   `(you have ,*loaded-systems* loaded)))
+	    	   (systems)))
 	  `(,system is not loaded))))
