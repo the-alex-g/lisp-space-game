@@ -7,7 +7,8 @@
 (defparameter *systems* '(engines sensors shields weapons))
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
-(defparameter *legal-commands* '(fly scan upload unload defcmd systems))
+(defparameter *forbidden-commands* '())
+(defparameter *commands* '(fly scan upload unload defcmd systems))
 (defparameter *custom-commands* '())
 
 (defstruct planet name scanned)
@@ -38,13 +39,22 @@
   (mapcan 'fmakunbound *custom-commands*)
   '(process terminated))
 
+(defun get-legal-commands ()
+  (labels ((eat (list)
+  	     (if list
+	     	 (if (member (car list) *forbidden-commands*)
+		     (eat (cdr list))
+		     (cons (car list) (eat (cdr list))))
+		 nil)))
+    (eat *commands*)))
+
 (defun custom-read ()
   (let ((cmd (read-from-string (concatenate 'string "(" (read-line) ")"))))
     (flet ((add-quotes (to) (list 'quote to)))
       (cons (car cmd) (mapcar #'add-quotes (cdr cmd))))))
 
 (defun custom-eval (cmd)
-  (if (member (car cmd) *legal-commands*)
+  (if (member (car cmd) (get-legal-commands))
       (eval cmd)
       '(invalid command)))
 
@@ -93,7 +103,7 @@
 (defun defcmd (name args &rest body)
   (if (or (member name *custom-commands*) (not (fboundp name)))
     (let ((code (quote-lines (break-into-lines body) args)) (is-old (fboundp name)))
-      (setf *legal-commands* (cons name *legal-commands*))
+      (setf *commands* (cons name *commands*))
       (eval `(setf (symbol-function (quote ,name))
        	  	   (lambda ,args ,@code)))
       (setf *custom-commands* (cons name *custom-commands*))
