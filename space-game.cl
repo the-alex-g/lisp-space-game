@@ -8,9 +8,12 @@
 (defparameter *loaded-systems* '(engines sensors))
 (defparameter *max-systems-loaded* 3)
 (defparameter *forbidden-commands* '())
-(defparameter *commands* '(fly scan upload unload defcmd systems fire))
+(defparameter *commands* '(fly scan upload unload defcmd systems fire charge discharge))
 (defparameter *custom-commands* '())
 (defparameter *current-encounter* nil)
+(defparameter *player-health* 15)
+(defparameter *charged-systems* '())
+(defparameter *charges* 3)
 
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
@@ -92,21 +95,24 @@
       	         (custom-repl)))
 	  (run-repl)))))
 
-(defun damage-player (power)
-  (let ((damage (+ 1 (random (+ 1 power)))))
-    (when (member 'shields *loaded-systems*)
-      	  (decf damage))
-    (if (eq 0 damage)
-    	(custom-print '(your shields blocked the attack))
-        (custom-print `(you have taken ,damage damage)))))
+(defun get-system-strength (system default charged)
+	   (if (member system *loaded-systems*)
+	       (cond ((member system *charged-systems*)
+		      (setf *charged-systems* (remove system *charged-systems*))
+		      charged)
+		     (t
+		      default))
+	       0))
 
 (defun attack-player (power)
-  (if (member 'engines *loaded-systems*)
-      (if (< (random 100) 15)
-      	  (custom-print '(you dodged the attack))
-	  (damage-player power))
-      (damage-player power)))
-
+  (if (< (random 100) (get-system-strength 'engines 15 50))
+      (custom-print '(you dodged the attack))
+      (let ((damage (- (+ 1 (random (+ 1 power))) (get-system-strength 'shields 1 2))))
+	(if (< damage 1)
+	    (custom-print '(your shields blocked the attack))
+	    (progn (decf *player-health* damage)
+	    	   (custom-print `(you have taken ,damage damage and have ,*player-health* health left)))))))
+     
 (defmethod encounter-process (encounter)
   (eval (encounter-on-finish encounter)))
 
@@ -209,7 +215,7 @@
 (defmethod attack ((encounter pirate))
     (if (< (random 100) (pirate-engines encounter))
     	'(the pirate dodges your attack)
-  	 (let ((damage (+ 1 (random 2))))
+  	 (let ((damage (get-system-strength 'weapons (+ 1 (random 2)) (+ 2 (random 2)))))
     	   (when (pirate-shields encounter)
     	   	 (decf damage))
            (decf (pirate-health encounter) damage)
@@ -219,6 +225,25 @@
 
 (systemfunc weapons fire ()
   (attack *current-encounter*))
+
+(defun charge (system)
+  (cond ((eq *charges* 0)
+  	 '(your power core is exhausted))
+	((member system *charged-systems*)
+	 '(that system is already charged))
+	(t
+	 (decf *charges*)
+	 (setf *charged-systems* (cons system *charged-systems*))
+	 `(you have ,*charged-systems* charged and ,*charges* charges remaining))))
+
+(defun discharge (system)
+  (cond ((not (member system *charged-systems*))
+  	 `(your ,system are not charged))
+	(t
+	 (unless (eq *charges* 3)
+	 	 (incf *charges*))
+	 (setf *charged-systems* (remove system *charged-systems*))
+	 `(you have discharged ,system and have ,*charged-systems* charged with ,*charges* charges remaining))))
 
 (defun systems ()
   `(you have ,*loaded-systems* loaded))
