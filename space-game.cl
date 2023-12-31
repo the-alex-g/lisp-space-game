@@ -20,9 +20,15 @@
 
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
-(defstruct (pirate (:include encounter)) (health (+ 1 (random 4)))
-	   	   	     		 (shields (eq 0 (random 3)))
-					 (engines (random 25)))
+
+(defmacro defencounter (name intro-text &rest slots)
+  `(progn (defstruct (,name (:include encounter)) ,@slots)
+  	  (defmethod get-intro-text ((encounter ,name))
+	    ,intro-text)))
+
+(defencounter pirate '(a ruthless pirate attacks!) (health (+ 1 (random 4)))
+	   	   	     		 	   (shields (eq 0 (random 3)))
+					 	   (engines (random 25)))
 (push #'make-pirate *common-encounter-constructors*)
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
@@ -46,12 +52,6 @@
 			    nil)))
 	       (setf line (get-line ,list nil))
 	       ,@body)))
-
-(defmethod get-intro-text (encounter)
-  '(you encountered!))
-
-(defmethod get-intro-text ((encounter pirate))
-  '(you encountered a pirate!))
 
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
