@@ -133,7 +133,7 @@
   (cond ((< (pirate-health encounter) 1)
   	 (custom-print '(you defeated the pirate!))
 	 (setf *current-encounter* nil)
-	 (eval (encounter-on-finish encounter)))
+	 (custom-print (eval (encounter-on-finish encounter))))
 	(t
 	 (attack-player 1)
 	 (custom-print `(the pirate has ,(pirate-health encounter) health remaining)))))
@@ -230,7 +230,7 @@
  	 (planet (get-planet-with-name planet-id *planets*)))
     (if (and planet (member planet linked-planets))
         (let ((action `(progn (setf *current-planet* ,planet)
-	     	      	      (custom-print '(you have flown to ,planet-id)))))
+	     	      	      '(you have flown to ,planet-id))))
 	  (if (eq (random 2) 0)
 	      (start-encounter action)
 	      (eval action)))
