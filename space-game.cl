@@ -18,17 +18,31 @@
 (defparameter *uncommon-encounter-constructors* ())
 (defparameter *rare-encounter-constructors* ())
 
+(defun range (min max)
+  (+ min (random (- (+ 1 max) min))))
+
+(defmacro multiprogn (&body body)
+  (labels ((add-progn (lines)
+  	     (if (> (length lines) 1)
+	     	 `(progn ,(car lines) ,(add-progn (cdr lines)))
+		 (car lines))))
+    (add-progn body)))
+
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
 
-(defmacro defencounter (name intro-text &rest slots)
-  `(progn (defstruct (,name (:include encounter)) ,@slots)
-  	  (defmethod get-intro-text ((encounter ,name))
-	    ,intro-text)))
+(defmacro defencounter (name intro-text forbidden-commands &rest slots)
+  `(multiprogn (defstruct (,name (:include encounter)) ,@slots)
+  	       (defmethod get-intro-text ((encounter ,name))
+	         ,intro-text)
+	       (defmethod get-forbidden-commands ((encounter ,name))
+	         ,forbidden-commands)))
 
-(defencounter pirate '(a ruthless pirate attacks!) (health (+ 1 (random 4)))
-	   	   	     		 	   (shields (eq 0 (random 3)))
-					 	   (engines (random 25)))
+(defencounter pirate '(a ruthless pirate attacks!)
+	      	     '(fly scan defcmd)
+	      	     (health (range 1 4))
+	   	     (shields (eq 0 (random 3)))
+		     (engines (random 26)))
 (push #'make-pirate *common-encounter-constructors*)
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
@@ -52,9 +66,6 @@
 			    nil)))
 	       (setf line (get-line ,list nil))
 	       ,@body)))
-
-(defun range (min max)
-  (+ min (random (- (+ 1 max) min))))
 
 (defun quit-game ()
   (mapcan 'fmakunbound *custom-commands*)
@@ -214,7 +225,8 @@
 (defun start-encounter (finish)
   (flet ((get-encounter (index)
   	   (flet ((make-encounter (builder)
-	   	    (funcall builder :on-finish finish)))
+	   	    (funcall builder :on-finish `(progn (setf *forbidden-commands* '(fire))
+		    	     	     			,finish))))
 	     (cond ((< index 3)
 	     	    (make-encounter (rand-nth *common-encounter-constructors*)))))))
 		   ;((< index 5)
@@ -222,6 +234,7 @@
 		   ;(t
 		    ;(make-encounter (rand-nth *rare-encounter-constructors*)))
     (setf *current-encounter* (get-encounter (random 3)))
+    (setf *forbidden-commands* (get-forbidden-commands *current-encounter*))
     (get-intro-text *current-encounter*)))
 
 (systemfunc engines fly (name number)
