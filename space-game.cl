@@ -19,7 +19,7 @@
 (defparameter *rare-encounter-constructors* ())
 
 (defstruct planet name scanned)
-(defstruct encounter on-finish intro-text)
+(defstruct encounter on-finish)
 (defstruct (pirate (:include encounter)) (health (+ 1 (random 4)))
 	   	   	     		 (shields (eq 0 (random 3)))
 					 (engines (random 25)))
@@ -46,6 +46,12 @@
 			    nil)))
 	       (setf line (get-line ,list nil))
 	       ,@body)))
+
+(defmethod get-intro-text (encounter)
+  '(you encountered!))
+
+(defmethod get-intro-text ((encounter pirate))
+  '(you encountered a pirate!))
 
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
@@ -216,7 +222,7 @@
 		   ;(t
 		    ;(make-encounter (rand-nth *rare-encounter-constructors*)))
     (setf *current-encounter* (get-encounter (random 3)))
-    (encounter-intro-text *current-encounter*)))
+    (get-intro-text *current-encounter*)))
 
 (systemfunc engines fly (name number)
   (let* ((planet-id (cons name (cons number nil)))
