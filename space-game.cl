@@ -5,13 +5,15 @@
 (defparameter *current-planet* nil)
 (defparameter *max-galaxy-size* 40)
 (defparameter *systems* '(engines sensors shields weapons))
-(defparameter *loaded-systems* '(engines sensors))
+(defparameter *loaded-systems* '(engines sensors weapons))
 (defparameter *max-systems-loaded* 3)
 (defparameter *forbidden-commands* '())
 (defparameter *commands* '(fly scan upload unload defcmd systems fire charge discharge))
 (defparameter *custom-commands* '())
 (defparameter *current-encounter* nil)
 (defparameter *player-health* 15)
+(defparameter *resources* 0)
+(defparameter *money* 0)
 (defparameter *charged-systems* '())
 (defparameter *charges* 3)
 (defparameter *common-encounter-constructors* ())
@@ -33,9 +35,9 @@
 
 (defmacro defencounter (name intro-text forbidden-commands &rest slots)
   `(multiprogn (defstruct (,name (:include encounter)) ,@slots)
-  	       (defmethod get-intro-text ((encounter ,name))
+  	       (defmethod encounter-intro-text ((encounter ,name))
 	         ,intro-text)
-	       (defmethod get-forbidden-commands ((encounter ,name))
+	       (defmethod encounter-forbidden-commands ((encounter ,name))
 	         ,forbidden-commands)))
 
 (defencounter pirate '(a ruthless pirate attacks!)
@@ -81,6 +83,8 @@
     (eat *commands*)))
 
 (defun custom-read ()
+  (princ '>>>)
+  (princ #\space)
   (let ((cmd (read-from-string (concatenate 'string "(" (read-line) ")"))))
     (flet ((add-quotes (to) (list 'quote to)))
       (cons (car cmd) (mapcar #'add-quotes (cdr cmd))))))
@@ -136,7 +140,26 @@
 	    (custom-print '(your shields blocked the attack))
 	    (progn (decf *player-health* damage)
 	    	   (custom-print `(you have taken ,damage damage and have ,*player-health* health left)))))))
-     
+
+(defun gain-money (amount)
+  (incf *money* amount)
+  (when (> amount 0)
+  	(custom-print `(you gained ,amount money))))
+
+(defun gain-resources (amount)
+  (incf *resources* amount)
+  (when (> amount 0)
+  	(custom-print `(you gained ,amount resources))))
+
+(defun gain-rewards (actions rewards)
+  (custom-print `(enter one of the following options ,actions))
+  (let ((cmd (car (custom-read))))
+    (if (eq cmd 'quit)
+    	(quit-game)
+      	(if (member cmd actions)
+	    (eval (cadr (assoc cmd rewards)))
+	    (gain-rewards actions rewards)))))
+
 (defmethod encounter-process (encounter)
   (eval (encounter-on-finish encounter)))
 
@@ -144,6 +167,13 @@
   (cond ((< (pirate-health encounter) 1)
   	 (custom-print '(you defeated the pirate!))
 	 (setf *current-encounter* nil)
+	 (gain-rewards '(loot release destroy)
+	 	       `((loot (progn (gain-money ,(range 0 10))
+		       	      	     (gain-resources ,(range 5 15))))
+			 (release (if (eq 0 ,(random 2))
+			 	      (gain-money ,(range 0 10))
+				      (gain-resources ,(range 0 10))))
+			 (destroy (gain-money ,(range 5 20)))))
 	 (custom-print (eval (encounter-on-finish encounter))))
 	(t
 	 (attack-player 1)
@@ -234,8 +264,8 @@
 		   ;(t
 		    ;(make-encounter (rand-nth *rare-encounter-constructors*)))
     (setf *current-encounter* (get-encounter (random 3)))
-    (setf *forbidden-commands* (get-forbidden-commands *current-encounter*))
-    (get-intro-text *current-encounter*)))
+    (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+    (encounter-intro-text *current-encounter*)))
 
 (systemfunc engines fly (name number)
   (let* ((planet-id (cons name (cons number nil)))
