@@ -8,9 +8,10 @@
 (defparameter *systems* '(engines sensors shields weapons))
 (defparameter *loaded-systems* '(engines sensors weapons))
 (defparameter *max-systems-loaded* 3)
-(defparameter *forbidden-commands* '(fire buy sell repair leave salvage))
-(defparameter *commands* '(fly scan upload unload defcmd systems fire charge discharge
-	      		   buy sell repair leave salvage))
+(defparameter *always-allowed-commands* '(upload unload defcmd systems charge discharge commands))
+(defparameter *default-allowed-commands* '(fly scan))
+(defparameter *allowed-commands* *default-allowed-commands*)
+(defparameter *commands* '())
 (defparameter *custom-commands* '())
 (defparameter *current-encounter* nil)
 (defparameter *max-player-health* 15)
@@ -41,15 +42,15 @@
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
 
-(defmacro defencounter (name intro-text forbidden-commands include &rest slots)
+(defmacro defencounter (name intro-text allowed-commands include &rest slots)
   `(multiprogn (defstruct (,name (:include ,include)) ,@slots)
   	       (defmethod encounter-intro-text ((encounter ,name))
 	         ,intro-text)
-	       (defmethod encounter-forbidden-commands ((encounter ,name))
-	         ,forbidden-commands)))
+	       (defmethod encounter-allowed-commands ((encounter ,name))
+	         ,allowed-commands)))
 
 (defencounter pirate '(a ruthless pirate attacks!)
-	      	     '(fly scan defcmd sell repair leave buy salvage)
+	      	     '(fire)
 		     encounter
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
@@ -57,27 +58,27 @@
 (push #'make-pirate *common-encounter-constructors*)
 
 (defencounter derilect '(you found an abandoned spaceship)
-	      	       '(fly scan defcmd sell repair buy)
+	      	       '(fire salvage leave)
 		       encounter
 		       (type (rand-nth '(empty full full full full danger danger danger danger pirate))))
 (push #'make-derilect *uncommon-encounter-constructors*)
 
 (defencounter merchant '(you found a wandering space merchant)
-	      	       '(fly scan defcmd salvage)
+	      	       '(fire buy sell repair leave)
 		       encounter
 		       (exchange-rate (range 2 5))
 		       (repair-cost (range 3 10)))
 (push #'make-merchant *common-encounter-constructors*)
 
 (defencounter system-merchant '(you find a wandering space merchant)
-	      		      '(fly scan defcmd salvage)
+	      		      '(fire buy sell repair leave)
 			      merchant
 			      (system-cost (* (/ (range 1 8) 2) 10))
 			      (system (rand-nth *locked-systems*)))
 (push #'make-system-merchant *uncommon-encounter-constructors*)
 
 (defencounter hostile-merchant '()
-			       '(fly scan defcmd sell repair leave buy salvage)
+			       '(fire)
 			       encounter
 			       (health (range 1 5))
 			       (shields (eq 0 (random 2)))
@@ -85,38 +86,42 @@
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
+(defun allowed-commands ()
+  (concatenate 'list *allowed-commands* *always-allowed-commands*))
+
+(defmacro command (name args &body body)
+  (eval-when (:compile-toplevel :load-toplevel :execute) (push name *commands*))
+  `(defun ,name (,@args &key always-process &allow-other-keys)
+    (cond ((or (member (quote ,name) (allowed-commands))
+	       always-process)
+	   ,@body)
+	  (t
+	   '(invalid command)))))
+
 (defmacro systemfunc (system name args &body body)
-  `(setf (symbol-function (quote ,name))
-         (lambda ,args
-	   (cond ((member (quote ,system) *loaded-systems*) ,@body)
-	      	 (t '(the required system is not loaded))))))
+  `(command ,name ,args
+    (cond ((member (quote ,system) *loaded-systems*)
+    	   ,@body)
+	  (t
+	   '(the required system is not loaded)))))
 
 (defmacro break-off-line (list &body body)
-	   `(let ((line ()) (rest ()))
-	     (labels ((get-line (l started)
-			(if l
-			    (if (eq (car l) '\[)
-				(if started
-				    (progn (setf rest l)
-					   nil)
-				    (get-line (cdr l) t))
-				(cons (car l) (get-line (cdr l) started)))
-			    nil)))
-	       (setf line (get-line ,list nil))
-	       ,@body)))
+  `(let ((line ()) (rest ()))
+    (labels ((get-line (l started)
+      	       (if l
+	       	   (if (eq (car l) '\[)
+	      	       (if started
+		       	   (progn (setf rest l)
+			      	  nil)
+		           (get-line (cdr l) t))
+	               (cons (car l) (get-line (cdr l) started)))
+                   nil)))
+     (setf line (get-line ,list nil))
+     ,@body)))
 
 (defun quit-game ()
   (mapcan 'fmakunbound *custom-commands*)
   '(process terminated))
-
-(defun get-legal-commands ()
-  (labels ((eat (list)
-  	     (if list
-	     	 (if (member (car list) *forbidden-commands*)
-		     (eat (cdr list))
-		     (cons (car list) (eat (cdr list))))
-		 nil)))
-    (eat *commands*)))
 
 (defun custom-read ()
   (princ '>>>)
@@ -126,7 +131,7 @@
       (cons (car cmd) (mapcar #'add-quotes (cdr cmd))))))
 
 (defun custom-eval (cmd)
-  (if (member (car cmd) (get-legal-commands))
+  (if (member (car cmd) *commands*)
       (eval cmd)
       '(invalid command)))
 
@@ -184,7 +189,7 @@
 		      default))
 	       0))
 
-(defun leave ()
+(command leave ()
   (eval (encounter-on-finish *current-encounter*)))
 
 (defun attack-player (power)
@@ -222,7 +227,7 @@
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
 (defmethod encounter-process (encounter)
-  (leave))
+  (leave :always-process t))
 
 (defmethod encounter-process ((encounter derilect))
   (princ #\newline)
@@ -238,7 +243,7 @@
 			 	      (gain-money ,(range 0 10))
 				      (gain-resources ,(range 0 10))))
 			 (destroy (gain-money ,(range 5 20)))))
-	 (custom-print (leave)))
+	 (custom-print (leave :always-process t)))
 	(t
 	 (attack-player 1)
 	 (custom-print `(the pirate has ,(pirate-health encounter) health remaining)))))
@@ -253,7 +258,7 @@
 			 	      (gain-money ,(range 5 10))
 				      (gain-resources ,(range 5 15))))
 			 (destroy '(you gain nothing for destroying the merchant))))
-	 (custom-print (leave)))
+	 (custom-print (leave :always-process t)))
 	(t
 	 (attack-player 1)
 	 (custom-print `(the merchant has ,(hostile-merchant-health encounter) health remaining)))))
@@ -284,10 +289,10 @@
 			 	     (cdr line))))
 	  lines))
 
-(defun defcmd (name args &rest body)
+(command defcmd (name args &rest body)
   (if (or (member name *custom-commands*) (not (fboundp name)))
     (let ((code (quote-lines (break-into-lines body) args)) (is-old (fboundp name)))
-      (setf *commands* (cons name *commands*))
+      (push name *commands*)
       (eval `(setf (symbol-function (quote ,name))
        	  	   (lambda ,args ,@code)))
       (setf *custom-commands* (cons name *custom-commands*))
@@ -338,7 +343,7 @@
 (defun start-encounter (finish)
   (flet ((get-encounter (index)
   	   (flet ((make-encounter (builder)
-	   	    (funcall builder :on-finish `(multiprogn (setf *forbidden-commands* '(fire))
+	   	    (funcall builder :on-finish `(multiprogn (setf *allowed-commands* *default-allowed-commands*)
 		    	     	     			     (setf *current-encounter* nil)
 		    	     	     			     ,finish))))
 	     (cond ((< index 3)
@@ -348,7 +353,7 @@
 		   ;(t
 		    ;(make-encounter (rand-nth *rare-encounter-constructors*)))
     (setf *current-encounter* (get-encounter (random 5)))
-    (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+    (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
     (encounter-intro-text *current-encounter*)))
 
 (systemfunc engines fly (name number)
@@ -391,7 +396,7 @@
 (defmethod attack ((encounter merchant))
   (cond ((eq (random 2) 0)
       	 (setf *current-encounter* (make-hostile-merchant :on-finish (encounter-on-finish encounter)))
-	 (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 	 (custom-print '(the merchant prepares to retaliate!))
 	 (attack *current-encounter*))
 	(t
@@ -401,7 +406,7 @@
 (defmethod attack ((encounter derilect))
   (cond ((eq (derilect-type encounter) 'pirate)
   	 (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish encounter)))
-	 (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 	 (custom-print '(the wreck powers on and prepares to attack!))
 	 (attack *current-encounter*))
 	((eq (derilect-type encounter) 'empty)
@@ -415,7 +420,7 @@
 (systemfunc weapons fire ()
   (attack *current-encounter*))
 
-(defun charge (system)
+(command charge (system)
   (cond ((not (member system *loaded-systems*))
    	 `(,system are not loaded))
         ((eq *charges* 0)
@@ -427,7 +432,7 @@
 	 (setf *charged-systems* (cons system *charged-systems*))
 	 `(you have ,*charged-systems* charged and ,*charges* charges remaining))))
 
-(defun discharge (system)
+(command discharge (system)
   (cond ((not (member system *charged-systems*))
   	 `(your ,system are not charged))
 	(t
@@ -436,10 +441,10 @@
 	 (setf *charged-systems* (remove system *charged-systems*))
 	 `(you have discharged ,system and have ,*charged-systems* charged with ,*charges* charges remaining))))
 
-(defun systems ()
+(command systems ()
   `(you have ,*loaded-systems* loaded))
 
-(defun upload (system)
+(command upload (system)
   (if (member system *systems*)
       (if (member system *loaded-systems*)
       	  `(,system are already loaded)
@@ -449,7 +454,7 @@
 	      '(you already have max systems loaded!)))
       '(that system does not exist)))
 
-(defun unload (system)
+(command unload (system)
   (if (eq system 'all)
       (labels ((un ()
       	         (if *loaded-systems*
@@ -464,7 +469,7 @@
 	    (t
              `(,system is not loaded)))))
 
-(defun sell (&optional (amount 1))
+(command sell (amount)
   (if (eq amount 'all)
       (sell *resources*)
       (cond ((>= *resources* amount)
@@ -475,7 +480,7 @@
 	    (t
 	     '(you do not have enough resources)))))
 
-(defun buy (&optional (amount 1))
+(command buy (amount)
   (let ((cost-per-resource (merchant-exchange-rate *current-encounter*)))
     (if (eq amount 'all)
     	(buy (floor (/ *money* cost-per-resource)))
@@ -502,7 +507,7 @@
 			  '(you cannot buy that))))
 		'(you cannot buy that))))))
 		
-(defun repair (&optional (amount 1))
+(command repair (amount)
   (if (< *player-health* *max-player-health*)
       (let ((cost-per-repair (merchant-repair-cost *current-encounter*)))
         (if (eq amount 'all)
@@ -516,7 +521,7 @@
 		     '(you do not have enough money))))))
       '(you are already at max health)))
 
-(defun salvage ()
+(command salvage ()
   (cond ((eq (type-of *current-encounter*) 'derilect)
   	 (let ((type (derilect-type *current-encounter*)))
 	   (cond ((eq type 'empty)
@@ -538,5 +543,5 @@
 		    (leave)))
 		 ((eq type 'pirate)
 		  (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish *current-encounter*)))
-		  (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+		  (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 		  '(the wreck powers on and prepares to attack!)))))))
