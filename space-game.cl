@@ -4,6 +4,7 @@
 (defparameter *planets* ())
 (defparameter *current-planet* nil)
 (defparameter *max-galaxy-size* 40)
+(defparameter *locked-systems* '(drones))
 (defparameter *systems* '(engines sensors shields weapons))
 (defparameter *loaded-systems* '(engines sensors weapons))
 (defparameter *max-systems-loaded* 3)
@@ -24,6 +25,11 @@
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
 
+(defun rand-nth (list)
+  (if (> (length list) 1)
+      (nth (random (length list)) list)
+      (car list)))
+
 (defmacro multiprogn (&body body)
   (labels ((add-progn (lines)
   	     (if (> (length lines) 1)
@@ -34,8 +40,8 @@
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
 
-(defmacro defencounter (name intro-text forbidden-commands &rest slots)
-  `(multiprogn (defstruct (,name (:include encounter)) ,@slots)
+(defmacro defencounter (name intro-text forbidden-commands include &rest slots)
+  `(multiprogn (defstruct (,name (:include ,include)) ,@slots)
   	       (defmethod encounter-intro-text ((encounter ,name))
 	         ,intro-text)
 	       (defmethod encounter-forbidden-commands ((encounter ,name))
@@ -43,6 +49,7 @@
 
 (defencounter pirate '(a ruthless pirate attacks!)
 	      	     '(fly scan defcmd sell repair leave buy)
+		     encounter
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
 		     (engines (random 26)))
@@ -50,12 +57,21 @@
 
 (defencounter merchant '(you found a wandering space merchant)
 	      	       '(fly scan defcmd)
+		       encounter
 		       (exchange-rate (range 2 5))
 		       (repair-cost (range 3 10)))
 (push #'make-merchant *common-encounter-constructors*)
 
+(defencounter system-merchant '(you find a wandering space merchant)
+	      		      '(fly scan defcmd)
+			      merchant
+			      (system-cost (* (/ (range 1 8) 2) 10))
+			      (system (rand-nth *locked-systems*)))
+(push #'make-system-merchant *uncommon-encounter-constructors*)
+
 (defencounter hostile-merchant '()
 			       '(fly scan defcmd sell repair leave buy)
+			       encounter
 			       (health (range 1 5))
 			       (shields (eq 0 (random 2)))
 			       (engines (random 16)))
@@ -189,6 +205,12 @@
 	    (eval (cadr (assoc cmd rewards)))
 	    (gain-rewards actions rewards)))))
 
+(defun show-merchant-wares (merchant)
+  (princ #\newline)
+  (custom-print `(you can buy resources for ,(merchant-exchange-rate merchant) money))
+  (custom-print `(you can sell resources for ,(- (merchant-exchange-rate merchant) 1) money))
+  (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
+
 (defmethod encounter-process (encounter)
   (eval (encounter-on-finish encounter)))
 
@@ -223,10 +245,13 @@
 	 (custom-print `(the merchant has ,(hostile-merchant-health encounter) health remaining)))))
 
 (defmethod encounter-process ((encounter merchant))
-  (princ #\newline)
-  (custom-print `(you can buy resources for ,(merchant-exchange-rate encounter) money))
-  (custom-print `(you can sell resources for ,(- (merchant-exchange-rate encounter) 1) money))
-  (custom-print `(you can buy repairs for ,(merchant-repair-cost encounter) money)))
+  (show-merchant-wares encounter))
+  
+(defmethod encounter-process ((encounter system-merchant))
+  (show-merchant-wares encounter)
+  (when (system-merchant-system encounter)
+  	(custom-print `(you can buy the ,(system-merchant-system encounter) system for
+		       ,(system-merchant-system-cost encounter) money))))
 
 (defun break-into-lines (list)
   (labels ((parse (l)
@@ -256,11 +281,6 @@
       	  `(redefined command ,name)
 	  `(defined new command ,name)))
     '(invalid command name)))
-
-(defun rand-nth (list)
-  (if (> (length list) 1)
-      (nth (random (length list)) list)
-      (car list)))
 
 (defun get-planet-name ()
   (let ((planet-name (rand-nth *planet-names*)))
@@ -308,12 +328,12 @@
 		    	     	     			     (setf *current-encounter* nil)
 		    	     	     			     ,finish))))
 	     (cond ((< index 3)
-	     	    (make-encounter (rand-nth *common-encounter-constructors*)))))))
-		   ;((< index 5)
-		    ;(make-encounter (rand-nth *uncommon-encounter-constructors*)))
+	     	    (make-encounter (rand-nth *common-encounter-constructors*)))
+		   ((< index 5)
+		    (make-encounter (rand-nth *uncommon-encounter-constructors*)))))))
 		   ;(t
 		    ;(make-encounter (rand-nth *rare-encounter-constructors*)))
-    (setf *current-encounter* (get-encounter (random 3)))
+    (setf *current-encounter* (get-encounter (random 5)))
     (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
     (encounter-intro-text *current-encounter*)))
 
@@ -364,7 +384,6 @@
 	 '(the merchant flees into interplanetary space)
 	 (eval (encounter-on-finish encounter)))))
       
-
 (systemfunc weapons fire ()
   (attack *current-encounter*))
 
@@ -432,14 +451,29 @@
   (let ((cost-per-resource (merchant-exchange-rate *current-encounter*)))
     (if (eq amount 'all)
     	(buy (floor (/ *money* cost-per-resource)))
-	(let ((cost (* cost-per-resource amount)))
-	  (cond ((>= *money* cost)
-	  	 (decf *money* cost)
-		 (incf *resources* amount)
-		 `(you bought ,amount resources for ,cost money))
-		(t
-		 '(you do not have enough money)))))))
-
+	(if (numberp amount)
+	    (let ((cost (* cost-per-resource amount)))
+	      (cond ((>= *money* cost)
+	  	    (decf *money* cost)
+		    (incf *resources* amount)
+		    `(you bought ,amount resources for ,cost money))
+		   (t
+		    '(you do not have enough money))))
+	    (if (eq (type-of *current-encounter*) 'system-merchant)
+		(let ((system (system-merchant-system *current-encounter*))
+		      (system-cost (system-merchant-system-cost *current-encounter*)))
+		   (cond (system
+		   	  (if (>= *money* system-cost)
+		   	      (multiprogn (decf *money* system-cost)
+		   	      		  (push system *systems*)
+		   			  (remove system *locked-systems*)
+		   			  (setf (system-merchant-system *current-encounter*) nil)
+		   			  `(you bought the ,system system for ,system-cost money))
+			      '(you do not have enough money)))
+			 (t
+			  '(you cannot buy that))))
+		'(you cannot buy that))))))
+		
 (defun repair (&optional (amount 1))
   (if (< *player-health* *max-player-health*)
       (let ((cost-per-repair (merchant-repair-cost *current-encounter*)))
