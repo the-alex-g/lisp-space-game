@@ -8,8 +8,9 @@
 (defparameter *systems* '(engines sensors shields weapons))
 (defparameter *loaded-systems* '(engines sensors weapons))
 (defparameter *max-systems-loaded* 3)
-(defparameter *forbidden-commands* '(fire buy sell repair leave))
-(defparameter *commands* '(fly scan upload unload defcmd systems fire charge discharge buy sell repair leave))
+(defparameter *forbidden-commands* '(fire buy sell repair leave salvage))
+(defparameter *commands* '(fly scan upload unload defcmd systems fire charge discharge
+	      		   buy sell repair leave salvage))
 (defparameter *custom-commands* '())
 (defparameter *current-encounter* nil)
 (defparameter *max-player-health* 15)
@@ -48,29 +49,35 @@
 	         ,forbidden-commands)))
 
 (defencounter pirate '(a ruthless pirate attacks!)
-	      	     '(fly scan defcmd sell repair leave buy)
+	      	     '(fly scan defcmd sell repair leave buy salvage)
 		     encounter
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
 		     (engines (random 26)))
 (push #'make-pirate *common-encounter-constructors*)
 
+(defencounter derilect '(you found an abandoned spaceship)
+	      	       '(fly scan defcmd sell repair buy)
+		       encounter
+		       (type (rand-nth '(empty full full full full danger danger danger danger pirate))))
+(push #'make-derilect *uncommon-encounter-constructors*)
+
 (defencounter merchant '(you found a wandering space merchant)
-	      	       '(fly scan defcmd)
+	      	       '(fly scan defcmd salvage)
 		       encounter
 		       (exchange-rate (range 2 5))
 		       (repair-cost (range 3 10)))
 (push #'make-merchant *common-encounter-constructors*)
 
 (defencounter system-merchant '(you find a wandering space merchant)
-	      		      '(fly scan defcmd)
+	      		      '(fly scan defcmd salvage)
 			      merchant
 			      (system-cost (* (/ (range 1 8) 2) 10))
 			      (system (rand-nth *locked-systems*)))
 (push #'make-system-merchant *uncommon-encounter-constructors*)
 
 (defencounter hostile-merchant '()
-			       '(fly scan defcmd sell repair leave buy)
+			       '(fly scan defcmd sell repair leave buy salvage)
 			       encounter
 			       (health (range 1 5))
 			       (shields (eq 0 (random 2)))
@@ -177,6 +184,9 @@
 		      default))
 	       0))
 
+(defun leave ()
+  (eval (encounter-on-finish *current-encounter*)))
+
 (defun attack-player (power)
   (if (< (random 100) (get-system-strength 'engines 15 50))
       (custom-print '(you dodged the attack))
@@ -212,7 +222,11 @@
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
 (defmethod encounter-process (encounter)
-  (eval (encounter-on-finish encounter)))
+  (leave))
+
+(defmethod encounter-process ((encounter derilect))
+  (princ #\newline)
+  (custom-print '(you may attempt to salvage the wreck)))
 
 (defmethod encounter-process ((encounter pirate))
   (cond ((< (pirate-health encounter) 1)
@@ -224,7 +238,7 @@
 			 	      (gain-money ,(range 0 10))
 				      (gain-resources ,(range 0 10))))
 			 (destroy (gain-money ,(range 5 20)))))
-	 (custom-print (eval (encounter-on-finish encounter))))
+	 (custom-print (leave)))
 	(t
 	 (attack-player 1)
 	 (custom-print `(the pirate has ,(pirate-health encounter) health remaining)))))
@@ -239,7 +253,7 @@
 			 	      (gain-money ,(range 5 10))
 				      (gain-resources ,(range 5 15))))
 			 (destroy '(you gain nothing for destroying the merchant))))
-	 (custom-print (eval (encounter-on-finish encounter))))
+	 (custom-print (leave)))
 	(t
 	 (attack-player 1)
 	 (custom-print `(the merchant has ,(hostile-merchant-health encounter) health remaining)))))
@@ -381,9 +395,23 @@
 	 (custom-print '(the merchant prepares to retaliate!))
 	 (attack *current-encounter*))
 	(t
-	 '(the merchant flees into interplanetary space)
-	 (eval (encounter-on-finish encounter)))))
-      
+	 (custom-print '(the merchant flees into interplanetary space))
+	 (leave))))
+
+(defmethod attack ((encounter derilect))
+  (cond ((eq (derilect-type encounter) 'pirate)
+  	 (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish encounter)))
+	 (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+	 (custom-print '(the wreck powers on and prepares to attack!))
+	 (attack *current-encounter*))
+	((eq (derilect-type encounter) 'empty)
+	 (custom-print '(the wreck disintegrates))
+	 (leave))
+	(t
+	 (custom-print '(the wreck disintegrates leaving behind a few resources))
+	 (gain-resources (range 1 3))
+	 (leave))))
+
 (systemfunc weapons fire ()
   (attack *current-encounter*))
 
@@ -488,7 +516,27 @@
 		     '(you do not have enough money))))))
       '(you are already at max health)))
 
-(defun leave ()
-  (eval (encounter-on-finish *current-encounter*)))
-          
-	  
+(defun salvage ()
+  (cond ((eq (type-of *current-encounter*) 'derilect)
+  	 (let ((type (derilect-type *current-encounter*)))
+	   (cond ((eq type 'empty)
+	   	  (custom-print '(you find nothing useful aboard the wreck))
+		  (leave))
+		 ((eq type 'full)
+		  (gain-resources (range 0 5))
+		  (gain-money (range 0 10))
+		  (leave))
+		 ((eq type 'danger)
+		  (gain-resources (range 0 5))
+		  (gain-money (range 0 10))
+		  (let ((damage (max 0 (- (range 1 3)
+		       		       	  (get-system-strength 'shields 1 2)))))
+		    (decf *player-health* damage)
+		    (if (eq damage 0)
+		    	(custom-print '(the wreck collapses but your shields protect you from the debris))
+			(custom-print `(the wreck collapses and you take ,damage damage)))
+		    (leave)))
+		 ((eq type 'pirate)
+		  (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish *current-encounter*)))
+		  (setf *forbidden-commands* (encounter-forbidden-commands *current-encounter*))
+		  '(the wreck powers on and prepares to attack!)))))))
