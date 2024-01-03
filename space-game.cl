@@ -95,13 +95,13 @@
   (concatenate 'list *allowed-commands* *always-allowed-commands*))
 
 (defmacro command (name args &body body)
-  (eval-when (:load-toplevel :execute) (push name *commands*))
-  `(defun ,name (,@args &key always-process &allow-other-keys)
-    (cond ((or (member (quote ,name) (allowed-commands))
-	       always-process)
-	   ,@body)
-	  (t
-	   '(invalid command)))))
+  `(progn (defun ,name (,@args &key always-process &allow-other-keys)
+    	    (cond ((or (member (quote ,name) (allowed-commands))
+	       	       always-process)
+	           ,@body)
+	  	  (t
+	   	   '(invalid command))))
+          (push (quote ,name) *commands*)))
 
 (defmacro systemfunc (system name args &body body)
   `(command ,name ,args
