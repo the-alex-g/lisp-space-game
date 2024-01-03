@@ -44,18 +44,17 @@
 (defstruct encounter on-finish)
 
 (defmacro defencounter (rarity name intro-text allowed-commands include &rest slots)
-  (eval-when (:compile-toplevel :load-toplevel :execute)
-  	     (when rarity
-  	     	   (eval `(push ,(read-from-string (concatenate 'string "#'make-" (symbol-name name)))
-  	     	    	  	,(read-from-string (concatenate 'string
-		    		       		    	  	"*"
-			  		     	    	  	(symbol-name rarity)
-							  	"-encounter-constructors*"))))))
   `(multiprogn (defstruct (,name (:include ,include)) ,@slots)
   	       (defmethod encounter-intro-text ((encounter ,name))
 	         ,intro-text)
 	       (defmethod encounter-allowed-commands ((encounter ,name))
-	         ,allowed-commands)))
+	         ,allowed-commands)
+	       ,(when rarity
+  	     	   `(push ,(read-from-string (concatenate 'string "#'make-" (symbol-name name)))
+  	     	    	  	,(read-from-string (concatenate 'string
+		    		       		    	  	"*"
+			  		     	    	  	(symbol-name rarity)
+							  	"-encounter-constructors*"))))))
 
 (defencounter common pirate '(a ruthless pirate attacks!)
 	      	     '(fire)
@@ -63,6 +62,8 @@
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
 		     (engines (random 26)))
+
+;;(defencounter uncommon thieves '())
 
 (defencounter uncommon derilect '(you found an abandoned spaceship)
 	      	       '(fire salvage leave)
@@ -94,7 +95,7 @@
   (concatenate 'list *allowed-commands* *always-allowed-commands*))
 
 (defmacro command (name args &body body)
-  (eval-when (:compile-toplevel :load-toplevel :execute) (push name *commands*))
+  (eval-when (:load-toplevel :execute) (push name *commands*))
   `(defun ,name (,@args &key always-process &allow-other-keys)
     (cond ((or (member (quote ,name) (allowed-commands))
 	       always-process)
