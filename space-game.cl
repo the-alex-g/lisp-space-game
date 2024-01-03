@@ -23,6 +23,7 @@
 (defparameter *common-encounter-constructors* ())
 (defparameter *uncommon-encounter-constructors* ())
 (defparameter *rare-encounter-constructors* ())
+(defparameter *myvar* '())
 
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
@@ -42,42 +43,45 @@
 (defstruct planet name scanned)
 (defstruct encounter on-finish)
 
-(defmacro defencounter (name intro-text allowed-commands include &rest slots)
+(defmacro defencounter (rarity name intro-text allowed-commands include &rest slots)
+  (eval-when (:compile-toplevel :load-toplevel :execute)
+  	     (when rarity
+  	     	   (eval `(push ,(read-from-string (concatenate 'string "#'make-" (symbol-name name)))
+  	     	    	  	,(read-from-string (concatenate 'string
+		    		       		    	  	"*"
+			  		     	    	  	(symbol-name rarity)
+							  	"-encounter-constructors*"))))))
   `(multiprogn (defstruct (,name (:include ,include)) ,@slots)
   	       (defmethod encounter-intro-text ((encounter ,name))
 	         ,intro-text)
 	       (defmethod encounter-allowed-commands ((encounter ,name))
 	         ,allowed-commands)))
 
-(defencounter pirate '(a ruthless pirate attacks!)
+(defencounter common pirate '(a ruthless pirate attacks!)
 	      	     '(fire)
 		     encounter
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
 		     (engines (random 26)))
-(push #'make-pirate *common-encounter-constructors*)
 
-(defencounter derilect '(you found an abandoned spaceship)
+(defencounter uncommon derilect '(you found an abandoned spaceship)
 	      	       '(fire salvage leave)
 		       encounter
 		       (type (rand-nth '(empty full full full full danger danger danger danger pirate))))
-(push #'make-derilect *uncommon-encounter-constructors*)
 
-(defencounter merchant '(you found a wandering space merchant)
+(defencounter common merchant '(you found a wandering space merchant)
 	      	       '(fire buy sell repair leave)
 		       encounter
 		       (exchange-rate (range 2 5))
 		       (repair-cost (range 3 10)))
-(push #'make-merchant *common-encounter-constructors*)
 
-(defencounter system-merchant '(you find a wandering space merchant)
+(defencounter uncommon system-merchant '(you find a wandering space merchant)
 	      		      '(fire buy sell repair leave)
 			      merchant
 			      (system-cost (* (/ (range 1 8) 2) 10))
 			      (system (rand-nth *locked-systems*)))
-(push #'make-system-merchant *uncommon-encounter-constructors*)
 
-(defencounter hostile-merchant '()
+(defencounter nil hostile-merchant nil
 			       '(fire)
 			       encounter
 			       (health (range 1 5))
@@ -121,6 +125,7 @@
 
 (defun quit-game ()
   (mapcan 'fmakunbound *custom-commands*)
+  (setf *custom-commands* nil)
   '(process terminated))
 
 (defun custom-read ()
@@ -520,6 +525,12 @@
 		    (t
 		     '(you do not have enough money))))))
       '(you are already at max health)))
+
+(command commands ()
+  (if *custom-commands*
+      (progn (custom-print `(built-in commands ,(allowed-commands)))
+      	     `(custom commands ,*custom-commands*))
+      (allowed-commands)))
 
 (command salvage ()
   (cond ((eq (type-of *current-encounter*) 'derilect)
