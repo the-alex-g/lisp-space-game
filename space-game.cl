@@ -63,7 +63,11 @@
 	   	     (shields (eq 0 (random 3)))
 		     (engines (random 26)))
 
-;;(defencounter uncommon thieves '())
+(defencounter uncommon thieves '(thieves steal from your ship!)
+	      	       '(leave)
+		       encounter
+		       (money-stolen 0)
+		       (resources-stolen 0))
 
 (defencounter uncommon derilect '(you found an abandoned spaceship)
 	      	       '(fire salvage leave)
@@ -88,6 +92,12 @@
 			       (health (range 1 5))
 			       (shields (eq 0 (random 2)))
 			       (engines (random 16)))
+
+(defencounter nil hostile-thieves nil
+	      	  '(fire)
+		  pirate
+		  (money 0)
+		  (resources 0))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
@@ -269,6 +279,23 @@
 	 (attack-player 1)
 	 (custom-print `(the merchant has ,(hostile-merchant-health encounter) health remaining)))))
 
+(defmethod encounter-process ((encounter hostile-thieves))
+  (cond ((< (hostile-thieves-health encounter) 1)
+  	 (custom-print '(you defeated the thieves!))
+	 (gain-rewards '(loot release destroy)
+	 	       `((loot (progn (gain-money ,(+ (range 5 15)
+		       	       	      		      (hostile-thieves-money encounter)))
+		       	      	     (gain-resources ,(+ (range 0 10)
+				     		      	 (hostile-thieves-resources encounter)))))
+			 (release (if (eq 0 ,(random 2))
+			 	      (gain-money ,(range 0 10))
+				      (gain-resources ,(range 0 10))))
+			 (destroy (gain-money ,(range 10 20)))))
+	 (custom-print (leave :always-process t)))
+	(t
+	 (attack-player 1)
+	 (custom-print `(the thieves have ,(hostile-thieves-health encounter) health remaining)))))
+
 (defmethod encounter-process ((encounter merchant))
   (show-merchant-wares encounter))
   
@@ -278,6 +305,20 @@
   	(custom-print `(you can buy the ,(system-merchant-system encounter) system for
 		       ,(system-merchant-system-cost encounter) money))))
 
+(defmethod encounter-process ((encounter thieves))
+  (let ((money-lost (min *money* (range 5 10)))
+        (resources-lost (min *resources* (range 5 10))))
+    (when (> money-lost 0)
+    	  (decf *money* money-lost)
+	  (setf (thieves-money-stolen encounter) money-lost)
+	  (custom-print `(they took ,money-lost money)))
+    (when (> resources-lost 0)
+    	  (decf *resources* resources-lost)
+	  (setf (thieves-resources-stolen encounter) resources-lost)
+	  (custom-print `(they took ,resources-lost resources))))
+    (when (member 'sensors *loaded-systems*)
+    	  (push 'chase *allowed-commands*)))
+  
 (defun break-into-lines (list)
   (labels ((parse (l)
   	      (break-off-line l
@@ -398,6 +439,17 @@
 	   (if (eq 0 damage)
 	       '(the merchants shields blocked your attack)
 	       `(you dealt ,damage damage to the merchant)))))
+
+(defmethod attack ((encounter hostile-thieves))
+  (if (< (random 100) (hostile-thieves-engines encounter))
+      '(the thieves dodge your attack)
+      (let ((damage (get-system-strength 'weapons (range 1 2) (range 2 3))))
+        (when (hostile-thieves-shields encounter)
+	      (decf damage))
+	(decf (hostile-thieves-health encounter) damage)
+	(if (eq 0 damage)
+	    '(the thieves shields blocked the attack)
+	    `(you dealt ,damage damage to the thieves)))))
 
 (defmethod attack ((encounter merchant))
   (cond ((eq (random 2) 0)
@@ -557,3 +609,14 @@
 		  (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish *current-encounter*)))
 		  (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 		  '(the wreck powers on and prepares to attack!)))))))
+
+(systemfunc engines chase ()
+  (cond ((eq (type-of *current-encounter*) 'thieves)
+  	 (if (< (random 100) (get-system-strength 'engines 15 50))
+	     (multiprogn (setf *current-encounter*
+	     		       (make-hostile-thieves :resources (thieves-resources-stolen *current-encounter*)
+			       			     :money (thieves-money-stolen *current-encounter*)))
+		  	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
+			 '(you chase down the thieves))
+	     (progn (custom-print '(you are unable to track down the thieves))
+	     	    (leave))))))
