@@ -227,14 +227,14 @@
   (when (> amount 0)
   	(custom-print `(you gained ,amount resources))))
 
-(defun gain-rewards (actions rewards)
-  (custom-print `(enter one of the following options ,actions))
+(defun choose (choices actions)
+  (custom-print `(enter one of the following options ,choices))
   (let ((cmd (car (custom-read))))
     (if (eq cmd 'quit)
     	(quit-game)
-      	(if (member cmd actions)
-	    (eval (cadr (assoc cmd rewards)))
-	    (gain-rewards actions rewards)))))
+      	(if (member cmd choices)
+	    (eval (cadr (assoc cmd actions)))
+	    (choose choices actions)))))
 
 (defun show-merchant-wares (merchant)
   (princ #\newline)
@@ -242,21 +242,21 @@
   (custom-print `(you can sell resources for ,(- (merchant-exchange-rate merchant) 1) money))
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
+(defun process-hostile-encounter (encounter-name encounter-health attack-power defeated-options rewards)
+  (cond ((< encounter-health 1)
+  	 (custom-print `(you defeated the ,encounter-name))
+	 (choose defeated-options rewards)
+	 (custom-print (leave :always-process t)))
+	(t
+	 (attack-player attack-power)
+	 (custom-print `(the ,encounter-name has ,encounter-health health left)))))
+
 (defmethod encounter-process (encounter)
   (leave :always-process t))
 
 (defmethod encounter-process ((encounter derilect))
   (princ #\newline)
   (custom-print '(you may attempt to salvage the wreck)))
-
-(defun process-hostile-encounter (encounter-name encounter-health attack-power defeated-options rewards)
-  (cond ((< encounter-health 1)
-  	 (custom-print `(you defeated the ,encounter-name))
-	 (gain-rewards defeated-options rewards)
-	 (custom-print (leave :always-process t)))
-	(t
-	 (attack-player attack-power)
-	 (custom-print `(the ,encounter-name has ,encounter-health health left)))))
 
 (defmethod encounter-process ((encounter pirate))
   (process-hostile-encounter 'pirate (pirate-health encounter) 1
@@ -310,8 +310,18 @@
     	  (decf *resources* resources-lost)
 	  (setf (thieves-resources-stolen encounter) resources-lost)
 	  (custom-print `(they took ,resources-lost resources))))
-    (when (member 'sensors *loaded-systems*)
-    	  (push 'chase *allowed-commands*)))
+    (if (member 'sensors *loaded-systems*)
+    	(choose '(chase leave)
+		`((chase (if (< (random 100) (get-system-strength 'engines 15 50))
+	    	       	   (multiprogn (setf *current-encounter* (make-hostile-thieves :resources (thieves-resources-stolen *current-encounter*)
+			       			     	     	 		       :money (thieves-money-stolen *current-encounter*)
+							     			       :on-finish (encounter-on-finish *current-encounter*))
+		  	 	       (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
+			 	       (custom-print '(you chase down the thieves))))
+	                   (progn (custom-print '(you are unable to track down the thieves))
+	     	    	   	  (leave :always-process t))))
+		  (leave (leave :always-process t))))
+	(leave :always-process t)))
   
 (defun break-into-lines (list)
   (labels ((parse (l)
@@ -598,14 +608,3 @@
 		  (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish *current-encounter*)))
 		  (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 		  '(the wreck powers on and prepares to attack!)))))))
-
-(systemfunc engines chase ()
-  (cond ((eq (type-of *current-encounter*) 'thieves)
-  	 (if (< (random 100) (get-system-strength 'engines 15 50))
-	     (multiprogn (setf *current-encounter*
-	     		       (make-hostile-thieves :resources (thieves-resources-stolen *current-encounter*)
-			       			     :money (thieves-money-stolen *current-encounter*)))
-		  	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
-			 '(you chase down the thieves))
-	     (progn (custom-print '(you are unable to track down the thieves))
-	     	    (leave))))))
