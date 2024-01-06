@@ -64,10 +64,8 @@
 		     (engines (random 26)))
 
 (defencounter uncommon thieves '(thieves steal from your ship!)
-	      	       '(leave)
-		       encounter
-		       (money-stolen 0)
-		       (resources-stolen 0))
+	      	       nil
+		       encounter)
 
 (defencounter uncommon police '(a law enforcement vessel appears)
 	      	       nil
@@ -76,26 +74,27 @@
 (defencounter uncommon derilect '(you found an abandoned spaceship)
 	      	       '(fire salvage leave)
 		       encounter
-		       (type (rand-nth '(empty full full full full danger danger danger danger pirate))))
+		       (type (rand-nth '(empty full full full full
+		       	     	         danger danger danger danger pirate))))
 
 (defencounter common merchant '(you found a wandering space merchant)
-	      	       '(fire buy sell repair leave)
-		       encounter
-		       (exchange-rate (range 2 5))
-		       (repair-cost (range 3 10)))
+	      	     '(fire buy sell repair leave)
+		     encounter
+		     (exchange-rate (range 2 5))
+		     (repair-cost (range 3 10)))
 
 (defencounter uncommon system-merchant '(you find a wandering space merchant)
-	      		      '(fire buy sell repair leave)
-			      merchant
-			      (system-cost (* (/ (range 1 8) 2) 10))
-			      (system (rand-nth *locked-systems*)))
+	      	       '(fire buy sell repair leave)
+		       merchant
+		       (system-cost (* (/ (range 1 8) 2) 10))
+		       (system (rand-nth *locked-systems*)))
 
 (defencounter nil hostile-merchant nil
-			       '(fire)
-			       encounter
-			       (health (range 1 5))
-			       (shields (eq 0 (random 2)))
-			       (engines (random 16)))
+	      	  '(fire)
+		  encounter
+		  (health (range 1 5))
+		  (shields (eq 0 (random 2)))
+		  (engines (random 16)))
 
 (defencounter nil hostile-thieves nil
 	      	  '(fire)
@@ -119,6 +118,14 @@
   `(progn (defun ,name (,@args &key always-process &allow-other-keys)
     	    (cond ((or (member (quote ,name) (allowed-commands))
 	       	       always-process)
+	           ,@body)
+	  	  (t
+	   	   '(invalid command))))
+          (push (quote ,name) *commands*)))
+
+(defmacro no-override-cmd (name args &body body)
+  `(progn (defun ,name (,@args)
+    	    (cond ((or (member (quote ,name) (allowed-commands)))
 	           ,@body)
 	  	  (t
 	   	   '(invalid command))))
@@ -254,11 +261,15 @@
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
 (defmacro change-encounter (new-encounter-builder message &rest flags)
-  `(multiprogn (setf *current-encounter* (funcall ,new-encounter-builder ,@flags :on-finish (encounter-on-finish *current-encounter*)))
+  `(multiprogn (setf *current-encounter*
+  	       	     (funcall ,new-encounter-builder
+  	       	     	      ,@flags
+  	       	     	      :on-finish (encounter-on-finish *current-encounter*)))
   	       (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
 	       (custom-print ,message)))
 
-(defun process-hostile-encounter (encounter-name encounter-health attack-power defeated-options rewards)
+(defun process-hostile-encounter (encounter-name encounter-health
+       				  attack-power defeated-options rewards)
   (cond ((< encounter-health 1)
   	 (custom-print `(you defeated the ,encounter-name))
 	 (choose defeated-options rewards)
@@ -287,20 +298,25 @@
   			     '(loot release destroy)
 	 	       	     `((loot (progn (gain-money ,(range 0 10))
 		       	      	     	    (gain-resources ,(range 5 15))))
-			       (release (if (eq 0 ,(random 2))
-			 	      	    (gain-money ,(range 0 10))
-				      	    (gain-resources ,(range 0 10))))
-			       (destroy (gain-money ,(range 5 20))))))
+			       (release (progn (decf *alignment*)
+					       (if (eq 0 ,(random 2))
+			 	      	       	   (gain-money ,(range 0 10))
+				      	    	   (gain-resources ,(range 0 10)))))
+			       (destroy (progn (gain-money ,(range 5 20))
+			       		       (incf *alignment*))))))
   
 (defmethod encounter-process ((encounter hostile-merchant))
   (process-hostile-encounter 'merchant (hostile-merchant-health encounter) 1
   			     '(loot release destroy)
-	 	       	     `((loot (progn (gain-money ,(range 5 15))
-		       	      	     	    (gain-resources ,(range 10 20))))
+	 	       	     `((loot (multiprogn (gain-money ,(range 5 15))
+		       	      	     	    	 (gain-resources ,(range 10 20))
+						 (decf *alignment*)))
 			       (release (if (eq 0 ,(random 3))
 			 	      	    (gain-money ,(range 5 10))
 				      	    (gain-resources ,(range 5 15))))
-			       (destroy '(you gain nothing for destroying the merchant)))))
+			       (destroy (progn (custom-print '(you gain nothing for
+			       		       		       destroying the merchant))
+			       		       (decf *alignment*))))))
 
 (defmethod encounter-process ((encounter hostile-police))
   (process-hostile-encounter 'police (hostile-police-health encounter) 1
@@ -320,15 +336,17 @@
 	 	       	     `((loot (progn (gain-money ,(+ (range 5 15)
 		       	       	      	    		 (hostile-thieves-money encounter)))
 		       	      	            (gain-resources ,(+ (range 0 10)
-				     		      	     (hostile-thieves-resources encounter)))))
-			       (release (if (eq 0 ,(random 2))
-			 	      	    (gain-money ,(range 0 10))
-				      	    (gain-resources ,(range 0 10))))
-			       (destroy (gain-money ,(range 10 20))))))
+				     		      	    (hostile-thieves-resources encounter)))))
+			       (release (progn (if (eq 0 ,(random 2))
+			 	      	       	   (gain-money ,(range 0 10))
+				      	    	   (gain-resources ,(range 0 10)))
+					       (decf *alignment*)))
+			       (destroy (progn (gain-money ,(range 10 20))
+			       		       (incf *alignment*))))))
 
 (defmethod encounter-process ((encounter merchant))
   (show-merchant-wares encounter))
-  
+
 (defmethod encounter-process ((encounter system-merchant))
   (show-merchant-wares encounter)
   (when (system-merchant-system encounter)
@@ -340,23 +358,21 @@
         (resources-lost (min *resources* (range 5 10))))
     (when (> money-lost 0)
     	  (decf *money* money-lost)
-	  (setf (thieves-money-stolen encounter) money-lost)
 	  (custom-print `(they took ,money-lost money)))
     (when (> resources-lost 0)
     	  (decf *resources* resources-lost)
-	  (setf (thieves-resources-stolen encounter) resources-lost)
-	  (custom-print `(they took ,resources-lost resources))))
+	  (custom-print `(they took ,resources-lost resources)))
     (if (member 'sensors *loaded-systems*)
     	(choose '(chase leave)
 		`((chase (if (< (random 100) (get-system-strength 'engines 15 50))
 			   (change-encounter #'make-hostile-thieves
 			   		     '(you chase down the thieves)
-					     :resources ,(thieves-resources-stolen *current-encounter*)
-					     :money ,(thieves-money-stolen *current-encounter*))
+					     :resources ,resources-lost
+					     :money ,money-lost)
 	                   (progn (custom-print '(you are unable to track down the thieves))
 	     	    	   	  (leave :always-process t))))
 		  (leave (leave :always-process t))))
-	(leave :always-process t)))
+	(leave :always-process t))))
   
 (defun break-into-lines (list)
   (labels ((parse (l)
@@ -375,13 +391,13 @@
 			 	     (cdr line))))
 	  lines))
 
-(command defcmd (name args &rest body)
+(no-override-cmd defcmd (name args &rest body)
   (if (or (member name *custom-commands*) (not (fboundp name)))
     (let ((code (quote-lines (break-into-lines body) args)) (is-old (fboundp name)))
       (push name *commands*)
       (eval `(setf (symbol-function (quote ,name))
        	  	   (lambda ,args ,@code)))
-      (setf *custom-commands* (cons name *custom-commands*))
+      (push name *custom-commands*)
       (if is-old
       	  `(redefined command ,name)
 	  `(defined new command ,name)))
@@ -491,6 +507,7 @@
 			    :name-prefix 'hostile))
 
 (defmethod attack ((encounter merchant))
+  (decf *alignment*)
   (cond ((eq (random 2) 0)
       	 (change-encounter #'make-hostile-merchant
 	 		   '(the merchant prepares to retaliate!))
