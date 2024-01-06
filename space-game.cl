@@ -69,6 +69,10 @@
 		       (money-stolen 0)
 		       (resources-stolen 0))
 
+(defencounter uncommon police '(a law enforcement vessel appears)
+	      	       nil
+		       encounter)
+
 (defencounter uncommon derilect '(you found an abandoned spaceship)
 	      	       '(fire salvage leave)
 		       encounter
@@ -98,6 +102,13 @@
 		  pirate
 		  (money 0)
 		  (resources 0))
+
+(defencounter nil hostile-police nil
+	      	  '(fire)
+		  encounter
+		  (health (range 2 5))
+		  (shields (< 1 (random 3)))
+		  (engines (random 31)))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
 
@@ -263,6 +274,14 @@
   (princ #\newline)
   (custom-print '(you may attempt to salvage the wreck)))
 
+(defmethod encounter-process ((encounter police))
+  (cond ((< *alignment* 3)
+	 (change-encounter #'make-hostile-police
+	 		   '(the ship turns and opens fire!)))
+	(t
+	 (custom-print '(after a short while the ship leaves))
+	 (custom-print (leave :always-process t)))))
+      
 (defmethod encounter-process ((encounter pirate))
   (process-hostile-encounter 'pirate (pirate-health encounter) 1
   			     '(loot release destroy)
@@ -282,6 +301,18 @@
 			 	      	    (gain-money ,(range 5 10))
 				      	    (gain-resources ,(range 5 15))))
 			       (destroy '(you gain nothing for destroying the merchant)))))
+
+(defmethod encounter-process ((encounter hostile-police))
+  (process-hostile-encounter 'police (hostile-police-health encounter) 1
+  			     '(loot release destroy)
+			     `((loot (if (eq 0 ,(random 2))
+			     	     	 (custom-print '(there is nothing valuable on board))
+					 (if (eq 0 ,(random 2))
+					     (gain-money ,(range 0 10))
+					     (gain-resources ,(range 0 5)))))
+			       (release (custom-print '(the ship warps away)))
+			       (destroy (progn (gain-resources ,(range 1 5))
+			       		       (decf *alignment* 2))))))
 
 (defmethod encounter-process ((encounter hostile-thieves))
   (process-hostile-encounter 'thieves (hostile-thieves-health encounter) 1
@@ -453,6 +484,11 @@
 
 (defmethod attack ((encounter hostile-thieves))
   (attack-encounter 'thieves (hostile-thieves-engines encounter) (hostile-thieves-shields encounter) :name-prefix 'hostile))
+
+(defmethod attack ((encounter hostile-police))
+  (attack-encounter 'police (hostile-police-engines encounter)
+  		    	    (hostile-police-shields encounter)
+			    :name-prefix 'hostile))
 
 (defmethod attack ((encounter merchant))
   (cond ((eq (random 2) 0)
