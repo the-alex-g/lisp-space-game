@@ -23,7 +23,7 @@
 (defparameter *common-encounter-constructors* ())
 (defparameter *uncommon-encounter-constructors* ())
 (defparameter *rare-encounter-constructors* ())
-(defparameter *myvar* '())
+(defparameter *alignment* 5)
 
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
@@ -40,7 +40,7 @@
 		 (car lines))))
     (add-progn body)))
 
-(defstruct planet name scanned)
+(defstruct planet name scanned (alignment (+ (range 0 5) (range 0 5))))
 (defstruct encounter on-finish)
 
 (defmacro defencounter (rarity name intro-text allowed-commands include &rest slots)
@@ -242,6 +242,11 @@
   (custom-print `(you can sell resources for ,(- (merchant-exchange-rate merchant) 1) money))
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
+(defmacro change-encounter (new-encounter-builder message &rest flags)
+  `(multiprogn (setf *current-encounter* (funcall ,new-encounter-builder ,@flags :on-finish (encounter-on-finish *current-encounter*)))
+  	       (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
+	       (custom-print ,message)))
+
 (defun process-hostile-encounter (encounter-name encounter-health attack-power defeated-options rewards)
   (cond ((< encounter-health 1)
   	 (custom-print `(you defeated the ,encounter-name))
@@ -313,11 +318,10 @@
     (if (member 'sensors *loaded-systems*)
     	(choose '(chase leave)
 		`((chase (if (< (random 100) (get-system-strength 'engines 15 50))
-	    	       	   (multiprogn (setf *current-encounter* (make-hostile-thieves :resources (thieves-resources-stolen *current-encounter*)
-			       			     	     	 		       :money (thieves-money-stolen *current-encounter*)
-							     			       :on-finish (encounter-on-finish *current-encounter*))
-		  	 	       (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
-			 	       (custom-print '(you chase down the thieves))))
+			   (change-encounter #'make-hostile-thieves
+			   		     '(you chase down the thieves)
+					     :resources ,(thieves-resources-stolen *current-encounter*)
+					     :money ,(thieves-money-stolen *current-encounter*))
 	                   (progn (custom-print '(you are unable to track down the thieves))
 	     	    	   	  (leave :always-process t))))
 		  (leave (leave :always-process t))))
@@ -451,10 +455,9 @@
   (attack-encounter 'thieves (hostile-thieves-engines encounter) (hostile-thieves-shields encounter) :name-prefix 'hostile))
 
 (defmethod attack ((encounter merchant))
-  (cond ((eq (random 1) 0)
-      	 (setf *current-encounter* (make-hostile-merchant :on-finish (encounter-on-finish encounter)))
-	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
-	 (custom-print '(the merchant prepares to retaliate!))
+  (cond ((eq (random 2) 0)
+      	 (change-encounter #'make-hostile-merchant
+	 		   '(the merchant prepares to retaliate!))
 	 (attack *current-encounter*))
 	(t
 	 (custom-print '(the merchant flees into interplanetary space))
@@ -462,9 +465,7 @@
 
 (defmethod attack ((encounter derilect))
   (cond ((eq (derilect-type encounter) 'pirate)
-  	 (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish encounter)))
-	 (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
-	 (custom-print '(the wreck powers on and prepares to attack!))
+  	 (change-encounter #'make-pirate '(the wreck powers on and prepares to attack!))
 	 (attack *current-encounter*))
 	((eq (derilect-type encounter) 'empty)
 	 (custom-print '(the wreck disintegrates))
@@ -605,6 +606,5 @@
 			(custom-print `(the wreck collapses and you take ,damage damage)))
 		    (leave)))
 		 ((eq type 'pirate)
-		  (setf *current-encounter* (make-pirate :on-finish (encounter-on-finish *current-encounter*)))
-		  (setf *allowed-commands* (encounter-allowed-commands *current-encounter*))
+		  (change-encounter #'make-pirate '(the wreck powers on and prepares to attack!))
 		  '(the wreck powers on and prepares to attack!)))))))
