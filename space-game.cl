@@ -57,7 +57,7 @@
 							  	"-encounter-constructors*"))))))
 
 (defencounter common pirate '(a ruthless pirate attacks!)
-	      	     '(fire)
+	      	     '(fire flee)
 		     encounter
 	      	     (health (range 1 4))
 	   	     (shields (eq 0 (random 3)))
@@ -81,6 +81,7 @@
 	      	     '(fire buy sell repair leave)
 		     encounter
 		     (exchange-rate (range 2 5))
+		     (sell-rate 0)
 		     (repair-cost (range 3 10)))
 
 (defencounter uncommon system-merchant '(you find a wandering space merchant)
@@ -90,20 +91,20 @@
 		       (system (rand-nth *locked-systems*)))
 
 (defencounter nil hostile-merchant nil
-	      	  '(fire)
+	      	  '(fire flee)
 		  encounter
 		  (health (range 1 5))
 		  (shields (eq 0 (random 2)))
 		  (engines (random 16)))
 
 (defencounter nil hostile-thieves nil
-	      	  '(fire)
+	      	  '(fire flee)
 		  pirate
 		  (money 0)
 		  (resources 0))
 
 (defencounter nil hostile-police nil
-	      	  '(fire)
+	      	  '(fire flee)
 		  encounter
 		  (health (range 2 5))
 		  (shields (< 1 (random 3)))
@@ -255,9 +256,11 @@
 	    (choose choices actions)))))
 
 (defun show-merchant-wares (merchant)
+  (when (eq (merchant-sell-rate merchant) 0)
+  	(setf (merchant-sell-rate merchant) (range 1 (- (merchant-exchange-rate merchant) 1))))
   (princ #\newline)
   (custom-print `(you can buy resources for ,(merchant-exchange-rate merchant) money))
-  (custom-print `(you can sell resources for ,(- (merchant-exchange-rate merchant) 1) money))
+  (custom-print `(you can sell resources for ,(merchant-sell-rate merchant) money))
   (custom-print `(you can buy repairs for ,(merchant-repair-cost merchant) money)))
 
 (defmacro change-encounter (new-encounter-builder message &rest flags)
@@ -463,13 +466,19 @@
          (linked-planets (gethash *current-planet* *gates*))
  	 (planet (get-planet-with-name planet-id *planets*)))
     (if (and planet (member planet linked-planets))
-        (let ((action `(progn (setf *current-planet* ,planet)
-	     	      	      '(you have flown to ,planet-id))))
+        (let ((action `(change-planet ,planet (quote ,planet-id))))
 	  (if (eq (random 2) 0)
 	      (start-encounter action)
 	      (eval action)))
  	'(you cannot fly there))))
 
+(defun change-planet (new-planet planet-name)
+  (setf *current-planet* new-planet)
+  (when (> (abs (- *alignment* (planet-alignment *current-planet*))) 5)
+      	 (custom-print `(As you approach ,planet-name the planetary defense systems open fire on your ship))
+	 (attack-player (range 2 4)))
+  `(you have arrived at ,planet-name))
+	 
 (defun attack-encounter (encounter-name engines shields &key name-prefix)
   (if (< (random 100) engines)
       `(the ,encounter-name dodges your attack)
@@ -585,7 +594,7 @@
       (sell *resources*)
       (cond ((>= *resources* amount)
       	     (decf *resources* amount)
-	     (let ((money-gained (* (- (merchant-exchange-rate *current-encounter*) 1) amount)))
+	     (let ((money-gained (* (merchant-sell-rate *current-encounter*) amount)))
 	       (incf *money* money-gained)
 	       `(you sold ,amount resources for ,money-gained money)))
 	    (t
@@ -655,9 +664,22 @@
 		       		       	  (get-system-strength 'shields 1 2)))))
 		    (decf *player-health* damage)
 		    (if (eq damage 0)
-		    	(custom-print '(the wreck collapses but your shields protect you from the debris))
+		    	(custom-print '(the wreck collapses but your shields
+				      	protect you from the debris))
 			(custom-print `(the wreck collapses and you take ,damage damage)))
 		    (leave)))
 		 ((eq type 'pirate)
 		  (change-encounter #'make-pirate '(the wreck powers on and prepares to attack!))
 		  '(the wreck powers on and prepares to attack!)))))))
+
+(command flee ()
+  (let ((encounter-name (type-of *current-encounter*)))
+    (cond ((> (+ (random 100) (random (get-system-strength 'engines 15 50)))
+    	      (eval `(,(read-from-string (concatenate 'string (symbol-name encounter-name)
+	      	    			 	      	      "-engines"))
+	      	      *current-encounter*)))
+	   (custom-print '(you escape from your attackers))
+	   (leave :always-process t))
+	  (t
+	   '(your attackers are faster than you and you cannot escape)))))
+	   
