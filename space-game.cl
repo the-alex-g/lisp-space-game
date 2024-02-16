@@ -16,14 +16,17 @@
 (defparameter *current-encounter* nil)
 (defparameter *max-player-health* 15)
 (defparameter *player-health* *max-player-health*)
-(defparameter *resources* 3)
-(defparameter *money* 3)
+(defparameter *resources* 10)
+(defparameter *money* 10)
 (defparameter *charged-systems* '())
 (defparameter *charges* 3)
 (defparameter *common-encounter-constructors* ())
 (defparameter *uncommon-encounter-constructors* ())
 (defparameter *rare-encounter-constructors* ())
 (defparameter *alignment* 5)
+(defparameter *quest* nil)
+
+(defstruct quest destination cost reward)
 
 (defun range (min max)
   (+ min (random (- (+ 1 max) min))))
@@ -77,6 +80,10 @@
 		       (type (rand-nth '(empty full full full full
 		       	     	         danger danger danger danger pirate))))
 
+(defencounter common quest-giver '(A passing spaceship asks you for a favor)
+	      	     nil
+		     encounter)
+
 (defencounter common merchant '(you found a wandering space merchant)
 	      	     '(fire buy sell repair leave)
 		     encounter
@@ -111,6 +118,7 @@
 		  (engines (random 31)))
 
 (mapcan (lambda (name) (setf (gethash name *name-uses*) (random 5))) *planet-names*)
+(defparameter *test-encounter* #'make-quest-giver)
 
 (defun allowed-commands ()
   (concatenate 'list *allowed-commands* *always-allowed-commands*))
@@ -194,7 +202,9 @@
   	  (custom-print `(you are on ,(planet-name *current-planet*)
   		  	  and there are gates to ,(mapcar (lambda (planet)
 		      	    	      	 	  	  (planet-name planet))
-						  (gethash *current-planet* *gates*)))))
+						  (gethash *current-planet* *gates*))))
+	  (when *quest*
+	  	(custom-print `(you have been tasked with delivering ,(quest-cost *quest*) to ,(planet-name (quest-destination *quest*))))))
   (princ "Health ")
   (loop for i below *player-health*
   	do (princ "|"))
@@ -257,7 +267,7 @@
 
 (defun show-merchant-wares (merchant)
   (when (eq (merchant-sell-rate merchant) 0)
-  	(setf (merchant-sell-rate merchant) (range 1 (- (merchant-exchange-rate merchant) 1))))
+  	(setf (merchant-sell-rate merchant) (max 1 (- (merchant-exchange-rate merchant) 1 (* (range 0 1) (range 0 1))))))
   (princ #\newline)
   (custom-print `(you can buy resources for ,(merchant-exchange-rate merchant) money))
   (custom-print `(you can sell resources for ,(merchant-sell-rate merchant) money))
@@ -282,6 +292,26 @@
 	 (custom-print `(the ,encounter-name has ,encounter-health health left)))))
 
 (defmethod encounter-process (encounter)
+  (leave :always-process t))
+
+(defmethod encounter-process ((encounter quest-giver))
+  (princ #\newline)
+  (let* ((destination (rand-nth *planets*))
+         (cost (range 2 10))
+	 (deliver-item (rand-nth '(resources money)))
+	 (aquire-item (if (eq deliver-item 'resources) 'money 'resources))
+	 (reward (+ cost (range 1 5))))
+    (custom-print `(a passing ship asks you to deliver ,cost ,deliver-item to ,(planet-name destination) in exchange for ,reward ,aquire-item))
+    (when *quest*
+    	  (custom-print '(note that accepting this quest will replace your current one)))
+    (choose '(accept decline)
+    	    `((accept (setf *quest* (make-quest :destination ,destination
+	    	      	    	    		:cost '(,cost ,deliver-item)
+	    	      	    	    		:reward '(multiprogn (custom-print '(you have completed the delivery))
+								     (if (eq (quote ,aquire-item) 'resources)
+								     	 (gain-resources ,reward)
+									 (gain-money ,reward))))))
+              (decline ()))))
   (leave :always-process t))
 
 (defmethod encounter-process ((encounter derilect))
@@ -448,6 +478,7 @@
 (defun start-encounter (finish)
   (flet ((get-encounter (index)
   	   (flet ((make-encounter (builder)
+	   	    (when *test-encounter* (setf builder *test-encounter*))
 	   	    (funcall builder :on-finish `(multiprogn (setf *allowed-commands* *default-allowed-commands*)
 		    	     	     			     (setf *current-encounter* nil)
 		    	     	     			     ,finish))))
@@ -472,13 +503,25 @@
 	      (eval action)))
  	'(you cannot fly there))))
 
+(defun complete-quest ()
+  (let ((variable (if (eq (cdr (quest-cost *quest*)) 'resources) '*resources* '*money*))
+  	(cost (car (quest-cost *quest*))))
+    (if (>= (eval variable) cost)
+    	(multiprogn (eval `(decf ,variable ,cost))
+		    (eval (quest-reward *quest*))
+	       	    (setf *quest* nil))
+	(custom-print `(you do not have enough ,(cdr (quest-cost *quest*)) to complete the delivery at this time)))))
+
 (defun change-planet (new-planet planet-name)
   (setf *current-planet* new-planet)
   (when (> (abs (- *alignment* (planet-alignment *current-planet*))) 5)
       	 (custom-print `(As you approach ,planet-name the planetary defense systems open fire on your ship))
 	 (attack-player (range 2 4)))
+  (when *quest*
+  	(when (equal (planet-name (quest-destination *quest*)) planet-name)
+	      (complete-quest)))
   `(you have arrived at ,planet-name))
-	 
+
 (defun attack-encounter (encounter-name engines shields &key name-prefix)
   (if (< (random 100) engines)
       `(the ,encounter-name dodges your attack)
